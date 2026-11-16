@@ -7,3 +7,6 @@ __pycache__/
 
 # Your own settings (layout, auto open)
 settings.json
+
+# Startup error details
+lobby_viewer.log

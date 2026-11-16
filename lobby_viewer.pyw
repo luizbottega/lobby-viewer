@@ -39,16 +39,47 @@ def ensure_packages():
                        creationflags=flags, check=False)
 
 
-ensure_packages()
+LOG_FILE = Path(__file__).with_name("lobby_viewer.log")
 
-import psutil  # noqa: E402
-import requests  # noqa: E402
-import urllib3  # noqa: E402
-import webview  # noqa: E402
+
+def show_error(error):
+    """Something stopped the app, so say why in a plain Windows message box and a log file."""
+    import traceback
+    try:
+        LOG_FILE.write_text(f"{datetime.now()}\n{traceback.format_exc()}\n{error}\n",
+                            encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        import tkinter
+        from tkinter import messagebox
+        root = tkinter.Tk()
+        root.withdraw()
+        messagebox.showerror(
+            "Lobby Viewer",
+            "Lobby Viewer couldn't start.\n\n"
+            f"{error}\n\n"
+            "If your antivirus blocked something, allow it and try again. Your previous "
+            "version is saved next to this file as lobby_viewer.bak, and the details are in "
+            "lobby_viewer.log.")
+        root.destroy()
+    except Exception:
+        pass
+
+
+try:
+    ensure_packages()
+    import psutil  # noqa: E402
+    import requests  # noqa: E402
+    import urllib3  # noqa: E402
+    import webview  # noqa: E402
+except Exception as startup_error:
+    show_error(f"A library couldn't be installed or loaded: {startup_error}")
+    sys.exit(1)
 
 # ---------------------------------------------------------------- settings
 
-VERSION = "1.2.0"            # raise this with every change, so the Update button sees it
+VERSION = "1.2.1"            # raise this with every change, so the Update button sees it
 UPDATE_URL = "https://raw.githubusercontent.com/luizbottega/lobby-viewer/main/lobby_viewer.pyw"
 
 POLL_SECONDS = 2
@@ -896,6 +927,9 @@ let S = null, view = "current", opened = null, lastKey = "";
 const api = () => window.pywebview.api;
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const wrColor = (p) => p >= 55 ? "var(--good)" : p < 48 ? "var(--bad)" : "var(--text)";
+// Lobbies saved by older versions only have the win rate as text, like "56%  (200W 156L, season)".
+const wrOf = (info) => info.wr ?? (parseInt(info.winrate, 10) || null);
+const noteOf = (info) => info.wr_note || ((info.winrate || "").match(/\((.*)\)/) || [])[1] || "";
 
 function go(v) { view = v; opened = null; render(true); }
 function openLobby(i) { view = "lobby"; opened = i; render(true); }
@@ -923,7 +957,7 @@ function card(p, info, role, color) {
   const who = `<div class="who">
       <div class="name">${esc(p.name)} <span class="tag">#${esc(p.tag)}</span></div>
       ${info ? `<div class="tier" style="color:${TIERS[info.tier] || "var(--muted)"}">${esc(info.rank)}</div>
-      <div class="note">${esc(info.wr_note || info.winrate || "")}</div>` : '<div class="loading">Loading…</div>'}
+      <div class="note">${esc(noteOf(info))}</div>` : '<div class="loading">Loading…</div>'}
       ${pills.length ? `<div class="pills">${pills.join("")}</div>` : ""}</div>`;
   let champs = '<div class="champs"><div class="loading">Reading ranked games…</div></div>';
   if (info && info.champions) {
@@ -940,12 +974,12 @@ function card(p, info, role, color) {
       style="background:${color};opacity:${win ? 1 : 0.22};box-shadow:0 0 6px ${color}"></div>`).join("");
     form = `<div class="form">
       <div class="formhead"><span class="label">LAST 10</span><div class="bars">${bars}</div><span class="small" style="color:var(--white)">${esc(r.record)}</span></div>
-      <div class="small">${esc(r.kda)} <span style="color:var(--muted)">· KDA</span> ${esc(r.ratio || "")}</div>
-      <div class="small" style="color:var(--muted)">${esc(r.cs)} cs/min · fav <span style="color:var(--white)">${esc(r.favorite)}</span></div></div>`;
+      <div class="small">${r.ratio ? `${esc(r.kda)} <span style="color:var(--muted)">· KDA</span> ${esc(r.ratio)}` : esc(r.kda)}</div>
+      <div class="small" style="color:var(--muted)">${esc(String(r.cs).replace(/\s*CS\/min/i, ""))} cs/min · fav <span style="color:var(--white)">${esc(r.favorite)}</span></div></div>`;
   } else if (info) {
     form = '<div class="form"><div class="loading">No recent games</div></div>';
   }
-  return `<div class="card">${ring(info ? info.wr : null, color)}${who}${champs}${form}</div>`;
+  return `<div class="card">${ring(info ? wrOf(info) : null, color)}${who}${champs}${form}</div>`;
 }
 
 function lobbyCards(lobby) {
@@ -1023,24 +1057,6 @@ const waitForApi = setInterval(() => { start(); if (started) clearInterval(waitF
 """
 
 
-def show_error(error):
-    """The window couldn't open, so say why in a plain Windows message box."""
-    try:
-        import tkinter
-        from tkinter import messagebox
-        root = tkinter.Tk()
-        root.withdraw()
-        messagebox.showerror(
-            "Lobby Viewer",
-            "The window couldn't open.\n\n"
-            f"{error}\n\n"
-            "Your previous version is saved next to this file as lobby_viewer.bak. "
-            "Send a print of this message so it can be fixed.")
-        root.destroy()
-    except Exception:
-        pass
-
-
 def main():
     demo = "--demo" in sys.argv
     state = State(demo)
@@ -1062,4 +1078,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as error:
+        show_error(error)
