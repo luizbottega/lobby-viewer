@@ -35,7 +35,7 @@ import urllib3
 
 # ---------------------------------------------------------------- settings
 
-VERSION = "1.1.0"            # raise this with every change, so the Update button sees it
+VERSION = "1.1.1"            # raise this with every change, so the Update button sees it
 UPDATE_URL = "https://raw.githubusercontent.com/luizbottega/lobby-viewer/main/lobby_viewer.pyw"
 
 POLL_SECONDS = 2
@@ -148,6 +148,7 @@ def parse_games(data, names):
         s = player.get("stats", {})
         duration = g.get("gameDuration", 0)
         games.append({
+            "id": g.get("gameId"),
             "champion": names.get(player.get("championId"), "?"),
             "win": bool(s.get("win")),
             "kills": s.get("kills", 0), "deaths": s.get("deaths", 0),
@@ -169,26 +170,41 @@ def get_games_page(client, puuid, names, page):
 
 
 def get_season_games(client, puuid, names, first_page):
-    """Ranked Solo/Duo games this season, reading more pages until the season start."""
+    """Ranked Solo/Duo games this season, reading older pages until the season start.
+
+    Returns the games and whether the whole season was covered. For other players the
+    client often sends the same recent games again instead of older ones, so every game is
+    counted once (by its id) and reading stops as soon as a page brings nothing new.
+    """
     season_start = SEASON_START.timestamp()
-    games, page, reached_limit = list(first_page), 0, False
-    while True:
-        if games and games[-1]["created"] < season_start:
-            break                                  # already past the season start
-        if len(games) >= MAX_SEASON_GAMES:
-            reached_limit = True
+    games, seen, page = [], set(), 0
+    covered_season = False
+
+    def add(new_games):
+        added = 0
+        for g in new_games:
+            key = g["id"] or (g["created"], g["champion"])
+            if key not in seen:
+                seen.add(key)
+                games.append(g)
+                added += 1
+        return added
+
+    add(first_page)
+    while len(games) < MAX_SEASON_GAMES:
+        if games and min(g["created"] for g in games) < season_start:
+            covered_season = True                  # reached games from before the season
             break
         page += 1
         try:
             more = get_games_page(client, puuid, names, page)
         except requests.RequestException:
             break
-        if not more:
-            break
-        games.extend(more)
+        if not more or add(more) == 0:
+            break                                  # no older games available
     season = [g for g in games
               if g["solo"] and not g["remake"] and g["created"] >= season_start]
-    return season, reached_limit
+    return season, covered_season
 
 
 def last_games_summary(games):
@@ -225,7 +241,7 @@ def winrate_text(rank, season_games, recent_games):
         return f"{round(100 * rank['wins'] / total)}%  ({rank['wins']}W {rank['losses']}L, season)"
     if season_games:
         wins = sum(g["win"] for g in season_games)
-        return f"{round(100 * wins / len(season_games))}%  ({len(season_games)} ranked games)"
+        return f"{round(100 * wins / len(season_games))}%  (last {len(season_games)} ranked games)"
     played = [g for g in recent_games if not g["remake"]]
     if played:
         wins = sum(g["win"] for g in played)
@@ -233,7 +249,7 @@ def winrate_text(rank, season_games, recent_games):
     return "No games found"
 
 
-def top_champions(season_games, reached_limit):
+def top_champions(season_games, covered_season):
     stats = {}
     for g in season_games:
         games, wins = stats.get(g["champion"], (0, 0))
@@ -242,7 +258,8 @@ def top_champions(season_games, reached_limit):
     return {
         "list": [{"name": name, "games": games, "winrate": round(100 * wins / games)}
                  for name, (games, wins) in best],
-        "note": f"last {MAX_SEASON_GAMES} games" if reached_limit else "",
+        "title": "MOST PLAYED THIS SEASON" if covered_season
+        else f"MOST PLAYED  (last {len(season_games)} ranked games)",
     }
 
 
@@ -318,20 +335,23 @@ class Worker(threading.Thread):
             rank = get_rank(client, puuid)
         except Exception:
             rank = {"tier": "UNRANKED", "division": "", "lp": 0, "wins": 0, "losses": 0}
-        try:
-            recent = get_games_page(client, puuid, names, 0)
-        except Exception:
-            recent = []
+        recent = []
+        for _ in range(2):                         # the client sometimes times out once
+            try:
+                recent = get_games_page(client, puuid, names, 0)
+                break
+            except Exception:
+                continue
         info = {"rank": rank_text(rank), "tier": rank["tier"],
                 "winrate": winrate_text(rank, [], recent),
                 "recent": last_games_summary(recent), "champions": None}
         self.out.put(("player", puuid, dict(info)))
 
         try:
-            season, reached_limit = get_season_games(client, puuid, names, recent)
+            season, covered_season = get_season_games(client, puuid, names, recent)
         except Exception:
-            season, reached_limit = [], False
-        info["champions"] = top_champions(season, reached_limit)
+            season, covered_season = [], False
+        info["champions"] = top_champions(season, covered_season)
         info["winrate"] = winrate_text(rank, season, recent)
         self.out.put(("player", puuid, info))
 
@@ -356,7 +376,7 @@ class DemoWorker(threading.Thread):
         self.out.put(("team", team, "br"))
         for p in team:
             time.sleep(0.3)
-            games = [{"champion": random.choice(champs[:5]), "win": random.random() < 0.55,
+            games = [{"id": None, "champion": random.choice(champs[:5]), "win": random.random() < 0.55,
                       "kills": random.randint(0, 12), "deaths": random.randint(1, 9),
                       "assists": random.randint(0, 15), "cs_min": random.uniform(1, 9),
                       "solo": True, "remake": False, "created": time.time()}
@@ -368,7 +388,7 @@ class DemoWorker(threading.Thread):
                 "rank": rank_text(rank), "tier": tier,
                 "winrate": winrate_text(rank, games, games),
                 "recent": last_games_summary(games),
-                "champions": top_champions(games, len(games) >= MAX_SEASON_GAMES)}))
+                "champions": top_champions(games, random.random() < 0.5)}))
 
 
 # ---------------------------------------------------------------- updates
@@ -483,10 +503,7 @@ class PlayerCard(tk.Frame):
             tk.Label(self.champ_rows, text="Reading ranked games...", bg=CARD, fg=MUTED,
                      font=(FONT, 9), anchor="w").pack(fill="x")
             return
-        title = "MOST PLAYED THIS SEASON"
-        if champions["note"]:
-            title += f"  ({champions['note']})"
-        self.champ_title.config(text=title)
+        self.champ_title.config(text=champions.get("title", "MOST PLAYED"))
         if not champions["list"]:
             tk.Label(self.champ_rows, text="No ranked games this season", bg=CARD, fg=MUTED,
                      font=(FONT, 9), anchor="w").pack(fill="x")
