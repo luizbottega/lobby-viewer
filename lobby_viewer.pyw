@@ -17,6 +17,7 @@ Preview: python lobby_viewer.pyw --demo  (fake data, no League needed)
 import json
 import queue
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -33,6 +34,9 @@ import requests
 import urllib3
 
 # ---------------------------------------------------------------- settings
+
+VERSION = "1.1.0"            # raise this with every change, so the Update button sees it
+UPDATE_URL = "https://raw.githubusercontent.com/luizbottega/lobby-viewer/main/lobby_viewer.pyw"
 
 POLL_SECONDS = 2
 DETAIL_GAMES = 10            # games shown in "last 10"
@@ -367,6 +371,29 @@ class DemoWorker(threading.Thread):
                 "champions": top_champions(games, len(games) >= MAX_SEASON_GAMES)}))
 
 
+# ---------------------------------------------------------------- updates
+
+
+def version_of(text):
+    match = re.search(r'^VERSION = "([\d.]+)"', text, re.MULTILINE)
+    return tuple(int(n) for n in match.group(1).split(".")) if match else (0,)
+
+
+def fetch_latest():
+    """The newest lobby_viewer.pyw on GitHub, as text."""
+    resp = requests.get(UPDATE_URL, timeout=10)
+    resp.raise_for_status()
+    compile(resp.text, "lobby_viewer.pyw", "exec")   # refuse a broken download
+    return resp.text
+
+
+def install_update(text):
+    """Keeps the current file as lobby_viewer.bak, then replaces it with the new version."""
+    me = Path(__file__)
+    me.with_suffix(".bak").write_text(me.read_text(encoding="utf-8"), encoding="utf-8")
+    me.write_text(text, encoding="utf-8")
+
+
 # ---------------------------------------------------------------- history
 
 
@@ -516,7 +543,7 @@ class Tooltip:
 class App(tk.Tk):
     def __init__(self, demo):
         super().__init__()
-        self.title("Lobby Viewer")
+        self.title(f"Lobby Viewer {VERSION}")
         self.geometry("920x760")
         self.minsize(840, 420)
         self.configure(bg=BG)
@@ -536,6 +563,9 @@ class App(tk.Tk):
         self.tab_history = self.tab_button(top, "History", lambda: self.show("history"))
         tk.Button(top, text="Open op.gg", command=self.open_opgg, bg=ACCENT, fg="#111",
                   relief="flat", font=(FONT, 9, "bold"), padx=10).pack(side="right")
+        self.update_button = tk.Button(top, text="Update", command=self.update_app, bg=CARD,
+                                       fg=MUTED, relief="flat", font=(FONT, 9), padx=10)
+        self.update_button.pack(side="right", padx=(0, 8))
         tk.Checkbutton(top, text="Auto open op.gg", variable=self.auto_open, bg=BG, fg=MUTED,
                        selectcolor=BG, activebackground=BG, activeforeground=TEXT,
                        font=(FONT, 9)).pack(side="right", padx=10)
@@ -551,6 +581,8 @@ class App(tk.Tk):
         worker = DemoWorker if demo else Worker
         worker(self.updates, self.auto_open).start()
         self.after(100, self.process_updates)
+        self.latest = None
+        threading.Thread(target=self.check_update, daemon=True).start()
 
     def tab_button(self, parent, text, command):
         button = tk.Button(parent, text=text, command=command, relief="flat", bg=BG, fg=MUTED,
@@ -572,6 +604,12 @@ class App(tk.Tk):
                 self.on_player(*data)
             elif kind == "ended":
                 self.live = None
+            elif kind == "update_available":
+                self.update_button.config(text="Update available", bg=ACCENT, fg="#111")
+            elif kind == "restart":
+                subprocess.Popen([sys.executable, str(Path(__file__))])
+                self.destroy()
+                return
         self.after(100, self.process_updates)
 
     def on_team(self, team, region):
@@ -595,6 +633,42 @@ class App(tk.Tk):
             card = self.cards.get(puuid)
             if card:
                 card.fill(info)
+
+    # ---- updates
+
+    def check_update(self):
+        """Quietly looks for a new version when the app opens."""
+        try:
+            text = fetch_latest()
+        except Exception:
+            return
+        if version_of(text) > version_of(f'VERSION = "{VERSION}"'):
+            self.latest = text
+            self.updates.put(("update_available",))
+
+    def update_app(self):
+        self.status.config(text="Checking for updates...")
+        threading.Thread(target=self._update_worker, daemon=True).start()
+
+    def _update_worker(self):
+        try:
+            text = self.latest or fetch_latest()
+        except Exception:
+            self.updates.put(("status", "Couldn't reach GitHub. Try again later."))
+            return
+        if version_of(text) <= version_of(f'VERSION = "{VERSION}"'):
+            self.updates.put(("status", f"You already have the latest version ({VERSION})."))
+            return
+        if self.demo:
+            self.updates.put(("status", "Demo mode: an update was found but not installed."))
+            return
+        try:
+            install_update(text)
+        except OSError:
+            self.updates.put(("status", "Couldn't save the update. Is the folder read-only?"))
+            return
+        self.updates.put(("status", "Updated! Restarting..."))
+        self.updates.put(("restart",))
 
     def save(self):
         if not self.demo:            # demo lobbies are fake, keep them out of the history file

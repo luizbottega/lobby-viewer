@@ -1,3 +1,6 @@
 # Your personal lobby history stays on your PC
 lobby_history.json
 __pycache__/
+
+# Backup kept by the Update button
+*.bak
