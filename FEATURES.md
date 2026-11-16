@@ -20,6 +20,17 @@ Fill in the last column together: **Yes** (build it), **No** (skip it) or **Late
 | Counters | Best counters to each enemy pick (Master+ stats from U.GG, Lolalytics, LadderEye), with gold/CS/kill leads at 15 min | ❌ | |
 | Lobby history | Past champ selects, to check after a game or dodge | ✅ Done (last 5) | |
 
+## Our own ideas
+
+| Feature | What it does | Ours | Worth it? |
+|---|---|---|---|
+| Full season stats | Most played and win rate per champion for the whole season. The League Client only gives about 20 recent games for other players, so this needs another source (see below) | ❌ | Later |
+
+**Sources for full season stats:**
+- **Riot personal API key** (official): free, register an app at developer.riotgames.com. Reading a whole season means many requests per player, so it fills in slowly.
+- **OP.GG MCP server** (official, free, no key): `https://mcp-api.op.gg/mcp`. Has summoner search, game history and a "renewal" tool. Made for AI assistants; need to check if an app may use it and if it gives per-champion season stats.
+- **Paid scrapers** (Apify, parse.bot): cost money per request, not worth it.
+
 ## Automation
 
 | Feature | What it does | Ours | Worth it? |
