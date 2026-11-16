@@ -1,4 +1,5 @@
 @echo off
 cd /d "%~dp0"
-pip install -q psutil requests
+echo Installing what Lobby Viewer needs...
+pip install -q psutil requests pywebview
 start "" pythonw lobby_viewer.pyw

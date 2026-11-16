@@ -14,8 +14,8 @@ Fill in the last column together: **Yes** (build it), **No** (skip it) or **Late
 | Rank | Solo/Duo tier and LP | ✅ Done | |
 | Main champions | Top 3 by mastery points | ✅ Better: games and win rate this season | |
 | Recent form | Win/loss in recent games | ✅ Better: last 10 games with KDA, CS and favorite | |
-| Role guessing | Figures out who plays which role when Riot hides it, from history and spells | ❌ | |
-| Off-role and autofill warning | Flags players who are autofilled or not on their usual role | ❌ | |
+| Role guessing | Figures out who plays which role when Riot hides it, from history and spells | ✅ Done (shown with a ?) | Yes |
+| Off-role and autofill warning | Flags players who are autofilled or not on their usual role | ✅ Partly (Autofill tag) | |
 | Enemy team | Shows the enemy team when the client reveals it (like 5-stacks) | ❌ | |
 | Counters | Best counters to each enemy pick (Master+ stats from U.GG, Lolalytics, LadderEye), with gold/CS/kill leads at 15 min | ❌ | |
 | Lobby history | Past champ selects, to check after a game or dodge | ✅ Done (last 5) | |
@@ -62,8 +62,9 @@ Fill in the last column together: **Yes** (build it), **No** (skip it) or **Late
 
 | Feature | What it does | Ours | Worth it? |
 |---|---|---|---|
+| Glow design | New look with win rate rings, full layout and side panel | ✅ Done | Yes |
 | Your own profile | Your rank and info on the start screen | ❌ | |
 | Tray icon | Closing the window keeps it running near the clock | ❌ | |
-| Remembers window size | Opens at the same size and place | ❌ | |
+| Remembers window size | Opens at the same size and place | ✅ Partly (remembers full or side panel) | |
 | Auto update | Updates itself | ✅ Done (Update button) | |
 | Analytics | Sends anonymous usage stats to the developer | ❌ On purpose | |

@@ -4,3 +4,6 @@ __pycache__/
 
 # Backup kept by the Update button
 *.bak
+
+# Your own settings (layout, auto open)
+settings.json
